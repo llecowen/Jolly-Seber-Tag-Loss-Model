@@ -1,0 +1,153 @@
+#########################################################################
+##1. Create the numeric vector of counts (frequency of capture history)
+##2. Indentify ngroup (the number of groups) and nobs_total (the number of observed animals)
+##3. Create a matrix of the individual tag histories
+##4. Extract the semicolon and expand the last numeric vector of groups
+##5. Expand the list of histories to get one single history for each animal
+##6. The count vector is used to expand the history vector
+############################################################################
+ntag=2;
+GJSTL=1 # Set flag to 0 if running the JSTL model (no groups)
+
+
+data.inp=read.table(file="Data.txt", colClasses="character")
+
+ngroup= dim(data.inp)[2]-2;#number of groups in model
+group
+count<- as.numeric(unlist(data.inp$V2));
+count
+nobs_total= sum(count);#number of animals observed in experiment
+nobs_total
+nsample= nchar(data.inp$V1[1])/ntag; #number of sample times used in experiment
+nsample
+
+history <- matrix(as.numeric(unlist(strsplit(rep(data.inp$V1,times=count), ""))),ncol=nchar(data.inp$V1[1]), byrow=TRUE)  ##the tag history for each individual
+
+group.vect<- vector(mode="double",length=(ngroup*nobs_total));#this intermediary-step group.vect is later used to create the intermediary-step group matrix below
+
+vect<- as.numeric(unlist(strsplit(rep(data.inp[,(ngroup+2)],times=count),";")));
+#vect here is the last column of data.inp, which specifies those individuals in the last group, minus the ";"
+
+for(i in 1:nobs_total)#this loop fills the group.vect with the last column of 1's and 0's in vect
+{ g=(ngroup-1)*nobs_total+i;
+  group.vect[g]=vect[i]; 
+}
+
+# Only for GJSTL model when there is more than 1 group
+if(GJSTL==1){
+   g=1;
+   for(v in 3:(ngroup+1))#this loop fills the group.vect with the other (not last) columns of 1's and 0's in vect, which specify which group each observation belongs to
+      { vect<- as.numeric(unlist(rep(data.inp[,v], times=count)))
+        i=1;
+        while(i<=nobs_total)
+          { group.vect[g]=vect[i];
+  	    g=g+1;
+  	    i=i+1; 
+         }#end while
+       }#end for
+   }#endif
+
+group.mat<- matrix(group.vect,ncol=ngroup, nrow=nobs_total);#intermediary tool: matrix which identifies which observations correspond to which group
+
+######################################################################################
+#The nobs vector specifies the number of observated animals belong to each group
+######################################################################################
+nobs<- vector(mode="double",length=ngroup)
+for(g in 1:ngroup){nobs[g]=sum(group.mat[,g]);}
+nobs
+
+######################################################################################
+#The group.vect is a vector corresponding to the original "history" matrix; it identifies which group each observed animal in the "history" belongs to.
+######################################################################################
+group.vect<-vector(mode="double",length=nobs_total)
+for(i in 1:nobs_total)
+{ for(g in 1:ngroup)
+  { if(group.mat[i,g]==1){group.vect[i]=g}
+  }
+}
+
+######################################################################################
+#The hist.list is a list containing the history matrix but separated into groups, that is, all the observations belonging to 
+##group 1 are in a matrix contained as the first element in the list; the observations belonging to group 2 are in a matrix contained 
+##as the second element in the list, and so on.
+######################################################################################
+hist.list<- list()
+for(g in 1:ngroup)
+{ hist.mat<- matrix(nrow=nobs[g],ncol=(nsample*ntag));
+  index=1;
+  for(i in 1:nobs_total)
+  { if(group.vect[i]==g)
+  	{ hist.mat[index,]=history[i,];
+  	  index=index+1;
+  	}
+  }
+  hist.list[[g]]=hist.mat
+}
+
+######################################################################################
+#The tag.hist array is 4-dimensional and uses the hist.list to create group-specific tag histories
+######################################################################################
+tag.hist<- array(data=NA,dim=c(ngroup,max(nobs),nsample,ntag))
+for(g in 1:ngroup)
+{ for(i in 1:nobs[g])
+  { index=1;
+    for(j in 1:nsample) 
+    { for(d in 1:ntag)
+	  { tag.hist[g,i,j,d]= hist.list[[g]][i,index];
+  	    index=index+1;
+  	  }
+  	}
+  }
+}
+
+
+######################################################################################
+#The capt.hist array uses the tag history (created above) to identify the capture history of each group-specific observation
+######################################################################################
+capt.hist<- array(NA, dim=c(ngroup, max(nobs),nsample));
+for(g in 1:ngroup)
+{ for(i in 1:nobs[g])
+  { for(j in 1:nsample)
+ 	{ if(sum(tag.hist[g,i,j,1:ntag])>=1){capt.hist[g,i,j]=1}
+   	   else{capt.hist[g,i,j]=0}
+   	}
+  }
+}
+
+
+######################################################################################
+#The "first" matrix specifies the first sample time at which each animal was observed 
+######################################################################################
+first<- array(NA,dim=c(ngroup,max(nobs)));
+for(g in 1:ngroup)
+{ for(i in 1:nobs[g])
+  { for(j in 1:nsample)
+    { if(capt.hist[g,i,j]==1){first[g,i]= j; break}
+    }
+  }
+}
+
+
+######################################################################################
+#The "last" matrix specifies the last sample time at which each animal was observed
+######################################################################################
+last<- array(NA,dim=c(ngroup,max(nobs)));
+for(g in 1:ngroup)
+{ for(i in 1:nobs[g])
+  { for(j in nsample:1)
+    { if(capt.hist[g,i,j]==1){last[g,i]= j; break}
+    }
+  }
+}
+
+
+######################################################################################
+#The numtag matrix specifies the number of tags at the last sample time for each animal observed 
+######################################################################################
+numtag<- array(NA,dim=c(ngroup,max(nobs)));
+for(g in 1:ngroup)
+{ for(i in 1:nobs[g])
+  { numtag[g,i]= sum(tag.hist[g,i,last[g,i],1:ntag]);
+  }
+}
+
